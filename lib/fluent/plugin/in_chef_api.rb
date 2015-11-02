@@ -6,7 +6,7 @@ module Fluent
 
     config_param :check_interval, :integer, :default => 60
     config_param :chef_server_url, :string, :default => nil
-    config_param :client_key, :string, :default => nil
+    config_param :client_key, :string, :default => "/etc/chef/client.key"
     config_param :config_file, :string, :default => "/etc/chef/client.rb"
     config_param :node_name, :string, :default => nil
     config_param :tag, :string, :default => "chef_api"
@@ -17,8 +17,52 @@ module Fluent
       require "chef-api"
     end
 
+    class ChefConfig
+      def self.load_file(file)
+        new(file).instance_eval { @config.dup }
+      end
+
+      def initialize(file)
+        @config = {}
+        instance_eval(::File.read(file))
+      end
+
+      def chef_server_url(value)
+        @config[:endpoint] = value
+      end
+
+      def node_name(value)
+        @config[:client] = value
+      end
+
+      def client_key(value)
+        @config[:key] = ::File.read(value)
+      end
+
+      def ssl_verify_mode(value)
+        @config[:ssl_verify] = value != :verify_none
+      end
+
+      def method_missing(*args)
+        # nop
+      end
+    end
+
     def configure(conf)
       super
+      @config = {}
+      if @config_file
+        @config = @config.merge(ChefConfig.load_file(@config_file))
+      end
+      if @chef_server_url
+        @config[:endpoint] = @chef_server_url
+      end
+      if @node_name
+        @config[:client] = value
+      end
+      if @client_key
+        @config[:key] = ::File.read(@client_key)
+      end
     end
 
     def start
@@ -32,11 +76,7 @@ module Fluent
     end
 
     def run
-      connection = ChefAPI::Connection.new(
-        :endpoint => @chef_server_url,
-        :client   => @node_name,
-        :key      => ::File.read(@client_key),
-      )
+      connection = ChefAPI::Connection.new(@config.dup)
       next_run = ::Time.new
       while @running
         if ::Time.new < next_run
