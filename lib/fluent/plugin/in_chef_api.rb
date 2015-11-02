@@ -6,7 +6,7 @@ module Fluent
 
     config_param :check_interval, :integer, :default => 60
     config_param :chef_server_url, :string, :default => nil
-    config_param :client_key, :string, :default => "/etc/chef/client.key"
+    config_param :client_key, :string, :default => nil
     config_param :config_file, :string, :default => "/etc/chef/client.rb"
     config_param :node_name, :string, :default => nil
     config_param :tag, :string, :default => "chef_api"
