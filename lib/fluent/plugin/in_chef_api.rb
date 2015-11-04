@@ -11,6 +11,7 @@ module Fluent
     config_param :node_name, :string, :default => nil
     config_param :tag, :string, :default => "chef_api"
     config_param :chef_environment, :string, :default => nil
+    config_param :default_values, :hash, :default => nil
 
     def initialize
       super
@@ -95,7 +96,11 @@ module Fluent
     end
 
     def run_once(connection)
-      data = {}
+      if @default_values
+        data = @default_values.dup
+      else
+        data = {}
+      end
       if @chef_environment
         nodes = connection.environments.fetch(@chef_environment).nodes
       else
