@@ -95,12 +95,11 @@ module Fluent
     end
 
     def run_once(connection)
+      data = {}
       if @chef_environment
         nodes = connection.environments.fetch(@chef_environment).nodes
-        data = {"chef_environment" => @chef_environment}
       else
         nodes = connection.nodes
-        data = {}
       end
       Engine.emit("#{@tag}.nodes", Engine.now, data.merge({"value" => nodes.count}))
       nodes.each do |node|
