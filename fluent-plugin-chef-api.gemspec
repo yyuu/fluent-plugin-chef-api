@@ -4,7 +4,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |spec|
   spec.name          = "fluent-plugin-chef-api"
-  spec.version       = "0.2.1"
+  spec.version       = "0.3.0"
   spec.authors       = ["Yamashita Yuu"]
   spec.email         = ["peek824545201@gmail.com"]
   spec.license       = "Apache-2.0"
