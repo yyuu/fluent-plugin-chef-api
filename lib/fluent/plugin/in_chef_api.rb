@@ -107,6 +107,15 @@ module Fluent
         nodes = connection.nodes
       end
       Engine.emit("#{@tag}.nodes", Engine.now, data.merge({"value" => nodes.count}))
+      begin
+        nodes.instance_eval do
+          if Hash === @collection
+            @collection = Hash[@collection.to_a.shuffle]
+          end
+        end
+      rescue => error
+        $log.warn("failed to shuffle nodes: #{error.class}: #{error.message}")
+      end
       nodes.each do |node|
         begin
           Engine.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
