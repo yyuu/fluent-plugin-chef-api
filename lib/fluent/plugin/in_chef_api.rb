@@ -119,9 +119,11 @@ module Fluent
       nodes.each do |node|
         begin
           Engine.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
-          ohai_time = node.automatic.fetch("ohai_time", "0").to_i
-          Engine.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
-          Engine.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
+          if node.automatic["ohai_time"]
+            ohai_time = node.automatic["ohai_time"].to_i
+            Engine.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
+            Engine.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
+          end
         rescue => error
           $log.warn("failed to fetch metrics from node: #{node.name}: #{error.class}: #{error.message}")
         end
