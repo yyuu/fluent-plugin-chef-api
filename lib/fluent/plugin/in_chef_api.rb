@@ -11,7 +11,8 @@ module Fluent
     config_param :node_name, :string, :default => nil
     config_param :tag, :string, :default => "chef_api"
     config_param :chef_environment, :string, :default => nil
-    config_param :default_values, :hash, :default => nil
+    config_param :default_values, :hash, :default => {}
+    config_param :monitor_multi, :bool, :default => true
 
     def initialize
       super
@@ -84,7 +85,11 @@ module Fluent
           sleep(1)
         else
           begin
-            run_once(connection)
+            if @monitor_multi
+              run_once(connection)
+            else
+              run_once_single(connnection)
+            end
           rescue => error
             $log.warn("failed to fetch metrics: #{error.class}: #{error.message}")
             next
@@ -95,12 +100,14 @@ module Fluent
       end
     end
 
+    def run_once_single(connection)
+      data = @default_values.dup
+      node = connection.nodes.fetch(@node_name)
+      emit_node_metrics(node, data)
+    end
+
     def run_once(connection)
-      if @default_values
-        data = @default_values.dup
-      else
-        data = {}
-      end
+      data = @default_values.dup
       if @chef_environment
         nodes = connection.environments.fetch(@chef_environment).nodes
       else
@@ -117,16 +124,20 @@ module Fluent
         $log.warn("failed to shuffle nodes: #{error.class}: #{error.message}")
       end
       nodes.each do |node|
-        begin
-          Engine.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
-          if node.automatic["ohai_time"]
-            ohai_time = node.automatic["ohai_time"].to_i
-            Engine.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
-            Engine.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
-          end
-        rescue => error
-          $log.warn("failed to fetch metrics from node: #{node.name}: #{error.class}: #{error.message}")
+        emit_node_metrics(node, data)
+      end
+    end
+
+    def emit_node_metrics(node, data)
+      begin
+        Engine.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
+        if node.automatic["ohai_time"]
+          ohai_time = node.automatic["ohai_time"].to_i
+          Engine.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
+          Engine.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
         end
+      rescue => error
+        $log.warn("failed to fetch metrics from node: #{node.name}: #{error.class}: #{error.message}")
       end
     end
   end
