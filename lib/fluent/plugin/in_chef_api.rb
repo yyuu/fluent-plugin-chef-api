@@ -88,7 +88,7 @@ module Fluent
             if @monitor_multi
               run_once(connection)
             else
-              run_once_single(connnection)
+              run_once_single(connection)
             end
           rescue => error
             $log.warn("failed to fetch metrics: #{error.class}: #{error.message}")
@@ -102,8 +102,9 @@ module Fluent
 
     def run_once_single(connection)
       data = @default_values.dup
-      node = connection.nodes.fetch(@node_name)
-      emit_node_metrics(node, data)
+      if node = connection.nodes.fetch(connection.client)
+        emit_node_metrics(node, data)
+      end
     end
 
     def run_once(connection)
