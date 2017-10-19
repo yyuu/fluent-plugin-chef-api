@@ -88,7 +88,7 @@ module Fluent
             if @monitor_multi
               run_once(connection)
             else
-              run_once_single(connnection)
+              run_once_single(connection)
             end
           rescue => error
             $log.warn("failed to fetch metrics: #{error.class}: #{error.message}")
