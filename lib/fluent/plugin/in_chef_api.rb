@@ -1,6 +1,7 @@
 require 'fluent/plugin/input'
+require "chef-api"
 
-module Fluent
+module Fluent::Plugin
   class ChefAPIInput < Fluent::Plugin::Input
     Plugin.register_input("chef_api", self)
 
@@ -18,33 +19,32 @@ module Fluent
 
     def initialize
       super
-      require "chef-api"
     end
 
     class ChefConfig
       def self.load_file(file)
-        new(file).instance_eval { @config.dup }
+        new(file).instance_eval { @chef_config.dup }
       end
 
       def initialize(file)
-        @config = {}
+        @chef_config = {}
         instance_eval(::File.read(file))
       end
 
       def chef_server_url(value)
-        @config[:endpoint] = value
+        @chef_config[:endpoint] = value
       end
 
       def node_name(value)
-        @config[:client] = value
+        @chef_config[:client] = value
       end
 
       def client_key(value)
-        @config[:key] = ::File.read(value)
+        @chef_config[:key] = ::File.read(value)
       end
 
       def ssl_verify_mode(value)
-        @config[:ssl_verify] = value != :verify_none
+        @chef_config[:ssl_verify] = value != :verify_none
       end
 
       def method_missing(*args)
@@ -54,27 +54,29 @@ module Fluent
 
     def configure(conf)
       super
-      @config = {}
       if @config_file
-        @config = @config.merge(ChefConfig.load_file(@config_file))
+        @chef_config = ChefConfig.load_file(@config_file).to_hash
+      else
+        @chef_config = {}
       end
       if @chef_server_url
-        @config[:endpoint] = @chef_server_url
+        @chef_config[:endpoint] = @chef_server_url
       end
       if @node_name
-        @config[:client] = value
+        @chef_config[:client] = value
       end
       if @client_key
-        @config[:key] = ::File.read(@client_key)
+        @chef_config[:key] = ::File.read(@client_key)
       end
     end
 
     def start
       thread_create(:chef_api, &method(:run))
+      super
     end
 
     def run
-      connection = ChefAPI::Connection.new(@config.dup)
+      connection = ChefAPI::Connection.new(@chef_config.dup)
       next_run = ::Time.new
       while thread_current_running?
         if ::Time.new < next_run
@@ -87,7 +89,7 @@ module Fluent
               run_once_single(connection)
             end
           rescue => error
-            $log.warn("failed to fetch metrics: #{error.class}: #{error.message}")
+            log.warn("failed to fetch metrics", error: error)
             next
           ensure
             next_run = ::Time.new + @check_interval
@@ -118,7 +120,7 @@ module Fluent
           end
         end
       rescue => error
-        $log.warn("failed to shuffle nodes: #{error.class}: #{error.message}")
+        log.warn("failed to shuffle nodes", error: error)
       end
       nodes.each do |node|
         emit_node_metrics(node, data)
@@ -134,7 +136,7 @@ module Fluent
           router.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
         end
       rescue => error
-        $log.warn("failed to fetch metrics from node: #{node.name}: #{error.class}: #{error.message}")
+        log.warn("failed to fetch metrics from node: #{node.name}", error: error)
       end
     end
   end
