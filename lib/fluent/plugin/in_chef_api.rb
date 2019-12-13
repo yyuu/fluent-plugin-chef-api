@@ -1,8 +1,11 @@
-#!/usr/bin/env ruby
+require 'fluent/plugin/input'
+require "chef-api"
 
-module Fluent
-  class ChefAPIInput < Input
+module Fluent::Plugin
+  class ChefAPIInput < Fluent::Plugin::Input
     Plugin.register_input("chef_api", self)
+
+    helpers :thread
 
     config_param :check_interval, :integer, :default => 60
     config_param :chef_server_url, :string, :default => nil
@@ -16,33 +19,32 @@ module Fluent
 
     def initialize
       super
-      require "chef-api"
     end
 
     class ChefConfig
       def self.load_file(file)
-        new(file).instance_eval { @config.dup }
+        new(file).instance_eval { @chef_config.dup }
       end
 
       def initialize(file)
-        @config = {}
+        @chef_config = {}
         instance_eval(::File.read(file))
       end
 
       def chef_server_url(value)
-        @config[:endpoint] = value
+        @chef_config[:endpoint] = value
       end
 
       def node_name(value)
-        @config[:client] = value
+        @chef_config[:client] = value
       end
 
       def client_key(value)
-        @config[:key] = ::File.read(value)
+        @chef_config[:key] = ::File.read(value)
       end
 
       def ssl_verify_mode(value)
-        @config[:ssl_verify] = value != :verify_none
+        @chef_config[:ssl_verify] = value != :verify_none
       end
 
       def method_missing(*args)
@@ -52,50 +54,35 @@ module Fluent
 
     def configure(conf)
       super
-      @config = {}
       if @config_file
-        @config = @config.merge(ChefConfig.load_file(@config_file))
+        @chef_config = ChefConfig.load_file(@config_file).to_hash
+      else
+        @chef_config = {}
       end
       if @chef_server_url
-        @config[:endpoint] = @chef_server_url
+        @chef_config[:endpoint] = @chef_server_url
       end
       if @node_name
-        @config[:client] = value
+        @chef_config[:client] = value
       end
       if @client_key
-        @config[:key] = ::File.read(@client_key)
+        @chef_config[:key] = ::File.read(@client_key)
       end
     end
 
     def start
-      @running = true
-      @thread = ::Thread.new(&method(:run))
-    end
-
-    def shutdown
-      @running = false
-      @thread.join
+      thread_create(:chef_api, &method(:run))
+      super
     end
 
     def run
-      connection = ChefAPI::Connection.new(@config.dup)
-      next_run = ::Time.new
-      while @running
-        if ::Time.new < next_run
-          sleep(1)
+      super
+      @connection = ChefAPI::Connection.new(@chef_config.dup)
+      timer_execute(:chef_api_input, @check_interval) do
+        if @monitor_multi
+          run_once(connection)
         else
-          begin
-            if @monitor_multi
-              run_once(connection)
-            else
-              run_once_single(connection)
-            end
-          rescue => error
-            $log.warn("failed to fetch metrics: #{error.class}: #{error.message}")
-            next
-          ensure
-            next_run = ::Time.new + @check_interval
-          end
+          run_once_single(connection)
         end
       end
     end
@@ -114,7 +101,7 @@ module Fluent
       else
         nodes = connection.nodes
       end
-      Engine.emit("#{@tag}.nodes", Engine.now, data.merge({"value" => nodes.count}))
+      router.emit("#{@tag}.nodes", Engine.now, data.merge({"value" => nodes.count}))
       begin
         nodes.instance_eval do
           if Hash === @collection
@@ -122,7 +109,7 @@ module Fluent
           end
         end
       rescue => error
-        $log.warn("failed to shuffle nodes: #{error.class}: #{error.message}")
+        log.warn("failed to shuffle nodes", error: error)
       end
       nodes.each do |node|
         emit_node_metrics(node, data)
@@ -131,14 +118,14 @@ module Fluent
 
     def emit_node_metrics(node, data)
       begin
-        Engine.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
+        router.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
         if node.automatic["ohai_time"]
           ohai_time = node.automatic["ohai_time"].to_i
-          Engine.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
-          Engine.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
+          router.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
+          router.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
         end
       rescue => error
-        $log.warn("failed to fetch metrics from node: #{node.name}: #{error.class}: #{error.message}")
+        log.warn("failed to fetch metrics from node: #{node.name}", error: error)
       end
     end
   end
