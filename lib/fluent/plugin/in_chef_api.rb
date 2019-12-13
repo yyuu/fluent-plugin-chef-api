@@ -1,8 +1,10 @@
-#!/usr/bin/env ruby
+require 'fluent/plugin/input'
 
 module Fluent
-  class ChefAPIInput < Input
+  class ChefAPIInput < Fluent::Plugin::Input
     Plugin.register_input("chef_api", self)
+
+    helpers :thread
 
     config_param :check_interval, :integer, :default => 60
     config_param :chef_server_url, :string, :default => nil
@@ -68,19 +70,13 @@ module Fluent
     end
 
     def start
-      @running = true
-      @thread = ::Thread.new(&method(:run))
-    end
-
-    def shutdown
-      @running = false
-      @thread.join
+      thread_create(:chef_api, &method(:run))
     end
 
     def run
       connection = ChefAPI::Connection.new(@config.dup)
       next_run = ::Time.new
-      while @running
+      while thread_current_running?
         if ::Time.new < next_run
           sleep(1)
         else
@@ -114,7 +110,7 @@ module Fluent
       else
         nodes = connection.nodes
       end
-      Engine.emit("#{@tag}.nodes", Engine.now, data.merge({"value" => nodes.count}))
+      router.emit("#{@tag}.nodes", Engine.now, data.merge({"value" => nodes.count}))
       begin
         nodes.instance_eval do
           if Hash === @collection
@@ -131,11 +127,11 @@ module Fluent
 
     def emit_node_metrics(node, data)
       begin
-        Engine.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
+        router.emit("#{@tag}.run_list", Engine.now, data.merge({"value" => node.run_list.length, "node" => node.name}))
         if node.automatic["ohai_time"]
           ohai_time = node.automatic["ohai_time"].to_i
-          Engine.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
-          Engine.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
+          router.emit("#{@tag}.ohai_time", Engine.now, data.merge({"value" => ohai_time, "node" => node.name}))
+          router.emit("#{@tag}.behind_seconds", Engine.now, data.merge({"value" => Time.new.to_i - ohai_time, "node" => node.name}))
         end
       rescue => error
         $log.warn("failed to fetch metrics from node: #{node.name}: #{error.class}: #{error.message}")
