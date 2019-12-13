@@ -76,24 +76,13 @@ module Fluent::Plugin
     end
 
     def run
-      connection = ChefAPI::Connection.new(@chef_config.dup)
-      next_run = ::Time.new
-      while thread_current_running?
-        if ::Time.new < next_run
-          sleep(1)
+      super
+      @connection = ChefAPI::Connection.new(@chef_config.dup)
+      timer_execute(:chef_api_input, @check_interval) do
+        if @monitor_multi
+          run_once(connection)
         else
-          begin
-            if @monitor_multi
-              run_once(connection)
-            else
-              run_once_single(connection)
-            end
-          rescue => error
-            log.warn("failed to fetch metrics", error: error)
-            next
-          ensure
-            next_run = ::Time.new + @check_interval
-          end
+          run_once_single(connection)
         end
       end
     end
